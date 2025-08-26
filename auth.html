@@ -7,30 +7,30 @@
 </head>
 <body>
   <p>Redirection en cours…</p>
-  <script>
-    (function () {
-      // Fragment reçu de Twitch : #access_token=...&scope=...
-      var hash = window.location.hash || "";
-      if (hash.startsWith("#")) hash = hash.substring(1);
+<script>
+(function () {
+    // Vérifie hash et search
+    var fragment = window.location.hash || window.location.search || "";
+    if (fragment.startsWith("#") || fragment.startsWith("?")) fragment = fragment.substring(1);
 
-      if (!hash) {
+    if (!fragment) {
         document.body.innerHTML = "<p>Erreur : aucun token reçu.</p>";
         return;
-      }
+    }
 
-      // Redirige vers l'app Android
-      var target = "myapp://callback?" + hash;
-      window.location.replace(target);
+    // Redirige vers l'app Android
+    var target = "myapp://callback?" + fragment;
+    window.location.replace(target);
 
-      // Sécurité : si l’app n’ouvre pas, on propose un lien manuel
-      setTimeout(function () {
+    // Lien de secours
+    setTimeout(function () {
         var a = document.createElement("a");
         a.href = target;
         a.textContent = "Ouvrir dans l’application";
         document.body.appendChild(document.createElement("br"));
         document.body.appendChild(a);
-      }, 1200);
-    })();
-  </script>
+    }, 1200);
+})();
+</script>
 </body>
 </html>
