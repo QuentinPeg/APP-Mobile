@@ -19,10 +19,14 @@
             position: fixed;
         }
         
-        #twitch-container {
+        #twitch-iframe {
             width: 100%;
             height: 100%;
-            position: relative;
+            border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
         }
         
         .loading {
@@ -34,7 +38,7 @@
             font-family: Arial, sans-serif;
             font-size: 16px;
             text-align: center;
-            z-index: 1000;
+            z-index: 5;
         }
         
         .error {
@@ -49,7 +53,7 @@
             padding: 20px;
             background: rgba(0, 0, 0, 0.8);
             border-radius: 8px;
-            z-index: 1000;
+            z-index: 20;
         }
         
         #debug-console {
@@ -84,7 +88,7 @@
 </head>
 <body>
     <div id="twitch-container">
-        <!-- Le contenu Twitch sera chargé ici -->
+        <iframe id="twitch-iframe" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"></iframe>
         <div id="loading" class="loading">Chargement de Twitch...</div>
         <div id="error" class="error" style="display: none;"></div>
         <div id="debug-console"></div>
@@ -138,113 +142,86 @@
                 hideError();
                 showLoading();
                 
-                // Rediriger directement vers Twitch
-                let twitchUrl = 'https://m.twitch.tv/' + channelName;
-                
-                if (accessToken) {
-                    // Pour m.twitch.tv, l'authentification se fait via localStorage
-                    injectAuthentication();
-                } else {
-                    // Attendre un peu puis rediriger
-                    setTimeout(() => {
-                        window.location.href = twitchUrl;
-                    }, 1000);
-                }
+                // Charger la page mobile Twitch dans l'iframe
+                loadTwitchPage();
                 
             } catch (error) {
                 debugLog('Erreur init: ' + error.message);
-                showError('Erreur technique');
+                showError('Erreur technique: ' + error.message);
             }
         }
         
-        // Injecter l'authentification
-        function injectAuthentication() {
+        function loadTwitchPage() {
             try {
-                if (accessToken) {
-                    debugLog('Injection token...');
+                const iframe = document.getElementById('twitch-iframe');
+                
+                // URL de la page mobile Twitch
+                let twitchUrl = 'https://m.twitch.tv/' + channelName;
+                
+                debugLog('Chargement: ' + twitchUrl);
+                
+                iframe.onload = function() {
+                    debugLog('Iframe chargée');
+                    hideLoading();
                     
-                    // Stocker le token dans localStorage
-                    localStorage.setItem('twitch_access_token', accessToken);
-                    localStorage.setItem('auth-token', accessToken);
-                    
-                    // Stocker le username
-                    if (username) {
-                        localStorage.setItem('twitch_username', username);
-                    }
-                    
-                    debugLog('Token injecté, redirection...');
-                    
-                    // Rediriger vers Twitch
+                    // Injecter le token après le chargement
                     setTimeout(() => {
-                        window.location.href = 'https://m.twitch.tv/' + channelName;
-                    }, 500);
-                }
+                        if (accessToken) {
+                            injectAuthentication(iframe);
+                        }
+                    }, 2000);
+                };
+                
+                iframe.onerror = function() {
+                    debugLog('Erreur chargement iframe');
+                    showError('Erreur de chargement');
+                };
+                
+                // Charger l'URL
+                iframe.src = twitchUrl;
+                
+            } catch (error) {
+                debugLog('Erreur loadTwitchPage: ' + error.message);
+                showError('Erreur de chargement');
+            }
+        }
+        
+        // Injecter l'authentification dans l'iframe
+        function injectAuthentication(iframe) {
+            try {
+                debugLog('Tentative injection token...');
+                
+                const injectScript = `
+                    try {
+                        // Stocker le token dans localStorage
+                        localStorage.setItem('twitch_access_token', '${accessToken}');
+                        localStorage.setItem('auth-token', '${accessToken}');
+                        
+                        // Stocker le username
+                        if ('${username}') {
+                            localStorage.setItem('twitch_username', '${username}');
+                        }
+                        
+                        console.log('Token Twitch injecté avec succès');
+                        
+                        // Recharger pour appliquer l'authentification
+                        setTimeout(() => { window.location.reload(); }, 500);
+                        
+                    } catch(e) {
+                        console.error('Erreur injection token:', e);
+                    }
+                `;
+                
+                // Injecter le script dans l'iframe
+                const script = iframe.contentDocument.createElement('script');
+                script.text = injectScript;
+                iframe.contentDocument.head.appendChild(script);
+                
+                debugLog('Token injecté');
+                
             } catch (error) {
                 debugLog('Erreur injection auth: ' + error.message);
-                // Continuer quand même
-                window.location.href = 'https://m.twitch.tv/' + channelName;
-            }
-        }
-        
-        // Fonction pour masquer les éléments indésirables (sera appelée après le chargement)
-        function hideUnwantedElements() {
-            try {
-                debugLog('Masquage des éléments...');
-                
-                // Sélecteurs des éléments à masquer
-                const selectorsToHide = [
-                    // Chat et sidebar
-                    '.chat-room', '.stream-chat', '.twitch-chat', '.live-chat',
-                    '.channel-page__right-column', '.side-nav',
-                    
-                    // Headers et navigation
-                    '.top-nav', '.header', 'nav', '.channel-header',
-                    '.channel-info-content', '.stream-info',
-                    
-                    // Pied de page et bannières
-                    'footer', '.banner', '.consent-banner', '.ad-banner',
-                    
-                    // Overlays et pubs
-                    '.ad-container', '[class*="ad-"]', '[data-a-target*="ad-"]',
-                    '.player-overlay', '.stream-display-ad'
-                ];
-                
-                let hiddenCount = 0;
-                selectorsToHide.forEach(selector => {
-                    const elements = document.querySelectorAll(selector);
-                    elements.forEach(el => {
-                        el.style.display = 'none';
-                        el.style.visibility = 'hidden';
-                        el.style.opacity = '0';
-                        hiddenCount++;
-                    });
-                });
-                
-                debugLog('Éléments masqués: ' + hiddenCount);
-                
-                // Forcer le player vidéo à prendre toute la place
-                const videoSelectors = [
-                    '.video-player', '[data-a-target="video-player"]',
-                    '.stream-player', '.player'
-                ];
-                
-                videoSelectors.forEach(selector => {
-                    const players = document.querySelectorAll(selector);
-                    players.forEach(player => {
-                        player.style.position = 'absolute';
-                        player.style.top = '0';
-                        player.style.left = '0';
-                        player.style.width = '100%';
-                        player.style.height = '100%';
-                        player.style.zIndex = '10';
-                    });
-                });
-                
-                // Cacher le loading une fois fait
-                hideLoading();
-                
-            } catch (error) {
-                debugLog('Erreur masquage: ' + error.message);
+                // L'authentification peut échouer à cause des politiques de sécurité, c'est normal
             }
         }
         
@@ -266,6 +243,11 @@
                 error.style.display = 'block';
             }
             hideLoading();
+            
+            // Signaler l'erreur à Android
+            if (window.AndroidBridge && typeof AndroidBridge.onPlayerError === 'function') {
+                AndroidBridge.onPlayerError(message);
+            }
         }
         
         function hideError() {
@@ -273,54 +255,36 @@
             if (error) error.style.display = 'none';
         }
         
-        // Détecter quand la page est chargée
-        let pageLoaded = false;
-        
-        function checkPageLoad() {
-            if (pageLoaded) return;
-            
-            // Vérifier si Twitch est chargé
-            const videoPlayer = document.querySelector('.video-player, [data-a-target="video-player"]');
-            if (videoPlayer) {
-                pageLoaded = true;
-                debugLog('Twitch détecté, masquage...');
-                hideUnwantedElements();
-                
-                // Vérifier périodiquement pour les éléments qui pourraient réapparaître
-                setInterval(hideUnwantedElements, 3000);
-            }
-        }
-        
-        // Surveillance des changements du DOM
-        const observer = new MutationObserver(checkPageLoad);
-        observer.observe(document.body, { 
-            childList: true, 
-            subtree: true,
-            attributes: true 
-        });
-        
-        // Démarrer la surveillance
-        setInterval(checkPageLoad, 1000);
-        
         // Démarrer l'initialisation
         document.addEventListener('DOMContentLoaded', function() {
-            debugLog('DOM chargé');
+            debugLog('DOM chargé - Démarrage initialisation');
             
             if (window.androidChannelName) {
                 initTwitchPlayer();
             } else {
-                setTimeout(initTwitchPlayer, 500);
+                // Attendre l'injection depuis Android
+                setTimeout(() => {
+                    if (window.androidChannelName) {
+                        initTwitchPlayer();
+                    } else {
+                        // Utiliser les paramètres d'URL
+                        setTimeout(initTwitchPlayer, 1000);
+                    }
+                }, 500);
             }
         });
         
-        // Gestion des erreurs
+        // Gestion des erreurs globales
         window.addEventListener('error', (event) => {
-            debugLog('Erreur: ' + event.message);
+            debugLog('Erreur globale: ' + event.message);
         });
         
-        // Exposer les fonctions
+        window.addEventListener('unhandledrejection', (event) => {
+            debugLog('Promise rejetée: ' + event.reason);
+        });
+        
+        // Exposer les fonctions globalement
         window.initTwitchPlayer = initTwitchPlayer;
-        window.hideUnwantedElements = hideUnwantedElements;
         
     </script>
 </body>
