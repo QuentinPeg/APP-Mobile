@@ -1,82 +1,385 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Twitch Player</title>
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      background-color: black;
-    }
-    #twitch-embed {
-      width: 100%;
-      height: 100%;
-    }
-    #status {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      color: white;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      background: rgba(0,0,0,0.5);
-      padding: 6px 10px;
-      border-radius: 6px;
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitch Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background-color: #000;
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+        }
+        
+        #twitch-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        
+        #twitch-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            text-align: center;
+            z-index: 1000;
+        }
+        
+        .error {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff3333;
+            font-family: Arial, sans-serif;
+            font-size: 16px;
+            text-align: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 8px;
+            z-index: 1000;
+        }
+        
+        .overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 999;
+        }
+        
+        #css-override {
+            display: none;
+        }
+    </style>
 </head>
 <body>
-  <div id="twitch-embed"></div>
-  <div id="status">🔄 Connexion...</div>
+    <div id="twitch-container">
+        <iframe id="twitch-iframe" src="about:blank"></iframe>
+        <div id="loading" class="loading">Chargement de Twitch...</div>
+        <div id="error" class="error" style="display: none;"></div>
+        <div class="overlay"></div>
+    </div>
 
-  <script src="https://player.twitch.tv/js/embed/v1.js"></script>
-  <script type="text/javascript">
-    // Récupération du channel depuis l’URL
-    const urlParams = new URLSearchParams(window.location.search);
-    const channel = urlParams.get('channel') || "twitch";
-    
-    // Création du lecteur Twitch
-    new Twitch.Player("twitch-embed", {
-      channel: channel,
-      width: '100%',
-      height: '100%',
-      autoplay: true
-    });
-
-    // Récupération du token injecté par VideoChatActivity
-    const token = localStorage.getItem("twitch_access_token");
-
-    const statusDiv = document.getElementById("status");
-
-    if (token) {
-      statusDiv.textContent = "✅ Token trouvé, connexion Twitch active";
-
-      // Exemple : appel API Twitch pour récupérer ton profil
-      fetch("https://api.twitch.tv/helix/users", {
-        headers: {
-          "Authorization": "Bearer " + token,
-          "Client-Id": "ygixxd8l01qs1ykm920al5y65bf5sa" // ⚠️ remplace par ton vrai client_id
+    <style id="css-override">
+        /* CSS qui sera injecté dans Twitch pour masquer tout sauf la vidéo */
+        .twitch-page {
+            overflow: hidden !important;
         }
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.data && data.data.length > 0) {
-          const user = data.data[0];
-          statusDiv.textContent = `👤 Connecté en tant que ${user.display_name}`;
-        } else {
-          statusDiv.textContent = "❌ Token invalide ou expiré";
+        
+        /* Masquer le chat et sidebar */
+        .stream-chat, 
+        [data-a-target="chat-room"], 
+        [data-test-selector="chat-room"],
+        .chat-room,
+        .live-chat,
+        .channel-page__right-column,
+        .side-nav,
+        .side-nav__overlay,
+        .channel-header,
+        .channel-info-content,
+        .stream-info,
+        .top-nav,
+        .header,
+        nav,
+        footer,
+        .video-chat__header,
+        .video-chat__input,
+        .chat-input,
+        .channel-panels,
+        .community-points-sidebar,
+        .channel-page__content,
+        .channel-page__player-and-chat,
+        .channel-page__player,
+        .channel-page__player-header,
+        .player-header,
+        .stream-display-ad__container,
+        .ad-banner,
+        .ad-container,
+        [class*="ad-"],
+        [data-a-target*="ad-"],
+        .consent-banner,
+        .gdpr-consent,
+        .privacy-banner,
+        .banner {
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            height: 0 !important;
+            opacity: 0 !important;
+            position: absolute !important;
         }
-      })
-      .catch(err => {
-        console.error(err);
-        statusDiv.textContent = "⚠️ Erreur lors de la récupération du profil";
-      });
-    } else {
-      statusDiv.textContent = "❌ Aucun token trouvé (mode invité)";
-    }
-  </script>
+        
+        /* Forcer le player vidéo à prendre tout l'espace */
+        .video-player,
+        [data-a-target="video-player"],
+        .stream-player,
+        .player,
+        .video-player__container,
+        .channel-page__video-player,
+        .video-player--theatre,
+        .video-player--fullscreen {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            z-index: 1 !important;
+        }
+        
+        /* Masquer les contrôles superflus mais garder les contrôles de lecture */
+        .player-controls {
+            opacity: 0.3 !important;
+            transition: opacity 0.3s ease !important;
+        }
+        
+        .player-controls:hover {
+            opacity: 1 !important;
+        }
+        
+        /* Cacher les overlays indésirables */
+        .player-overlay,
+        .channel-header__overlay,
+        .stream-display-ad__overlay,
+        .ad-overlay,
+        .banner-overlay {
+            display: none !important;
+        }
+        
+        /* Assurer que le body et html prennent tout l'espace */
+        body, html {
+            width: 100% !important;
+            height: 100% !important;
+            overflow: hidden !important;
+            background: #000 !important;
+        }
+        
+        /* Cacher les éléments de modération et communauté */
+        .community-points,
+        .channel-points,
+        .mod-view,
+        .moderation,
+        .hype-train,
+        .cheers,
+        .bits,
+        .subscriptions,
+        .channel-bar,
+        .user-card,
+        .user-menu {
+            display: none !important;
+        }
+    </style>
+
+    <script>
+        // Variables globales
+        let channelName = '';
+        let accessToken = '';
+        let username = '';
+        let twitchIframe = null;
+        
+        // Fonction d'initialisation
+        function initTwitchPlayer() {
+            try {
+                // Récupérer les paramètres de l'URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const urlChannel = urlParams.get('channel');
+                
+                // Utiliser les variables injectées par Android ou les paramètres d'URL
+                channelName = window.androidChannelName || urlChannel || '';
+                accessToken = window.androidAccessToken || '';
+                username = window.androidUsername || '';
+                
+                if (!channelName) {
+                    showError('Nom de channel non spécifié');
+                    return;
+                }
+                
+                console.log('Chargement de Twitch pour:', channelName);
+                hideError();
+                showLoading();
+                
+                twitchIframe = document.getElementById('twitch-iframe');
+                
+                // Construire l'URL Twitch avec authentification si disponible
+                let twitchUrl = `https://www.twitch.tv/${channelName}`;
+                
+                if (accessToken) {
+                    twitchUrl += `?token=${encodeURIComponent(accessToken)}`;
+                }
+                
+                // Charger Twitch dans l'iframe
+                twitchIframe.src = twitchUrl;
+                
+                // Attendre que l'iframe soit chargée
+                twitchIframe.onload = function() {
+                    console.log('Twitch chargé');
+                    hideLoading();
+                    
+                    // Injecter le CSS pour masquer les éléments indésirables
+                    setTimeout(injectCustomCSS, 2000);
+                    
+                    // Notifier Android que le player est prêt
+                    if (window.AndroidBridge && typeof AndroidBridge.onPlayerReady === 'function') {
+                        AndroidBridge.onPlayerReady();
+                    }
+                };
+                
+                twitchIframe.onerror = function() {
+                    showError('Erreur de chargement de Twitch');
+                    if (window.AndroidBridge && typeof AndroidBridge.onPlayerError === 'function') {
+                        AndroidBridge.onPlayerError('Erreur de chargement iframe');
+                    }
+                };
+                
+            } catch (error) {
+                console.error('Erreur lors de l\'initialisation:', error);
+                showError('Erreur technique: ' + error.message);
+                
+                if (window.AndroidBridge && typeof AndroidBridge.onPlayerError === 'function') {
+                    AndroidBridge.onPlayerError(error.message);
+                }
+            }
+        }
+        
+        // Injecter le CSS personnalisé dans Twitch
+        function injectCustomCSS() {
+            try {
+                const iframeDoc = twitchIframe.contentDocument || twitchIframe.contentWindow.document;
+                const cssOverride = document.getElementById('css-override').textContent;
+                
+                // Créer un style element dans l'iframe
+                const style = iframeDoc.createElement('style');
+                style.textContent = cssOverride;
+                iframeDoc.head.appendChild(style);
+                
+                console.log('CSS personnalisé injecté');
+                
+                // Forcer le redimensionnement des éléments
+                setTimeout(forceResize, 1000);
+                
+            } catch (error) {
+                console.warn('Impossible d\'injecter CSS:', error);
+                // Réessayer
+                setTimeout(injectCustomCSS, 1000);
+            }
+        }
+        
+        // Forcer le redimensionnement des éléments vidéo
+        function forceResize() {
+            try {
+                const iframeDoc = twitchIframe.contentDocument || twitchIframe.contentWindow.document;
+                
+                // Trouver et redimensionner le player vidéo
+                const videoPlayers = iframeDoc.querySelectorAll('.video-player, [data-a-target="video-player"], .stream-player');
+                videoPlayers.forEach(player => {
+                    player.style.width = '100%';
+                    player.style.height = '100%';
+                    player.style.position = 'absolute';
+                    player.style.top = '0';
+                    player.style.left = '0';
+                });
+                
+                // Masquer définitivement le chat
+                const chatElements = iframeDoc.querySelectorAll('.stream-chat, [data-a-target="chat-room"], .chat-room');
+                chatElements.forEach(el => {
+                    el.style.display = 'none';
+                    el.style.visibility = 'hidden';
+                    el.style.width = '0';
+                    el.style.height = '0';
+                });
+                
+            } catch (error) {
+                console.warn('Erreur lors du redimensionnement:', error);
+            }
+        }
+        
+        // Fonctions utilitaires
+        function showLoading() {
+            const loading = document.getElementById('loading');
+            if (loading) loading.style.display = 'block';
+        }
+        
+        function hideLoading() {
+            const loading = document.getElementById('loading');
+            if (loading) loading.style.display = 'none';
+        }
+        
+        function showError(message) {
+            const error = document.getElementById('error');
+            if (error) {
+                error.textContent = message;
+                error.style.display = 'block';
+            }
+            hideLoading();
+        }
+        
+        function hideError() {
+            const error = document.getElementById('error');
+            if (error) error.style.display = 'none';
+        }
+        
+        function refreshStream() {
+            if (twitchIframe) {
+                twitchIframe.src = 'about:blank';
+                setTimeout(initTwitchPlayer, 100);
+            } else {
+                initTwitchPlayer();
+            }
+        }
+        
+        // Gestion des erreurs globales
+        window.addEventListener('error', (event) => {
+            console.error('Erreur globale:', event.error);
+            if (window.AndroidBridge && typeof AndroidBridge.onPlayerError === 'function') {
+                AndroidBridge.onPlayerError(event.error?.message || 'Erreur inconnue');
+            }
+        });
+        
+        // Démarrer l'initialisation quand la page est chargée
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM chargé, initialisation de Twitch...');
+            
+            // Si les variables Android sont déjà disponibles, initialiser tout de suite
+            if (window.androidChannelName) {
+                initTwitchPlayer();
+            } else {
+                // Sinon, attendre un peu que l'injection se fasse
+                setTimeout(initTwitchPlayer, 500);
+            }
+        });
+        
+        // Exposer les fonctions globalement pour l'injection Android
+        window.initTwitchPlayer = initTwitchPlayer;
+        window.refreshStream = refreshStream;
+        
+    </script>
 </body>
 </html>
