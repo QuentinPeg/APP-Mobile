@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EXIF GPS extractor</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { font-family: system-ui, -apple-system, Roboto, 'Helvetica Neue', Arial; margin: 0; padding: 16px; }
+    .controls { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+    #map { height: 400px; border-radius: 8px; margin-top: 12px; }
+    .list { margin-top:12px; }
+    .item { padding:8px; border:1px solid #eee; border-radius:6px; margin-bottom:8px; display:flex; gap:8px; align-items:center; }
+    .thumb { width:64px; height:64px; object-fit:cover; border-radius:6px; }
+    .meta { flex:1 }
+    pre { background:#f6f8fa; padding:8px; border-radius:6px; overflow:auto }
+    .center { display:flex; align-items:center; gap:8px }
+    button { padding:8px 10px; border-radius:6px; border:1px solid #ddd; background:#fff; cursor:pointer }
+  </style>
+</head>
+<body>
+  <h2>EXIF GPS extractor</h2>
+  <p>Choisissez des photos (JPEG). La page extrait les coordonnées GPS (EXIF) côté client et les affiche sur une carte.</p>
+  <div class="controls">
+    <input id="fileInput" type="file" accept="image/*" multiple />
+    <button id="clearBtn">Clear</button>
+    <button id="exportBtn">Exporter JSON</button>
+    <span id="status"></span>
+  </div>
+
+  <div id="map"></div>
+  <div class="list" id="list"></div>
+
+  <p>Remarques: piexifjs (CDN) est utilisé pour parser EXIF depuis les JPEG; si vos images ne sont pas JPEG ou n'ont pas de tags GPS, elles n'apparaîtront pas sur la carte.</p>
+
+  <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.4/piexif.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const list = document.getElementById('list');
+    const status = document.getElementById('status');
+    const exportBtn = document.getElementById('exportBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    const items = [];
+
+    // initialize Leaflet map
+    const map = L.map('map').setView([48.8566, 2.3522], 3);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    function rationalToNumber(r) {
+      if (!r) return null;
+      // r might be [num, den] or a number
+      if (Array.isArray(r)) {
+        if (r.length === 2 && typeof r[0] === 'number' && typeof r[1] === 'number') {
+          return r[0] / r[1];
+        }
+        // nested arrays like [[num,den],[num,den],[num,den]]
+        return null;
+      }
+      return Number(r);
+    }
+
+    function convertRationalArray(arr) {
+      if (!arr) return null;
+      // arr could be [[num,den],[num,den],[num,den]]
+      if (Array.isArray(arr) && arr.length >= 3) {
+        const toNum = (v) => {
+          if (Array.isArray(v) && v.length === 2) return v[0] / v[1];
+          return Number(v) || 0;
+        };
+        const deg = toNum(arr[0]);
+        const min = toNum(arr[1]);
+        const sec = toNum(arr[2]);
+        return deg + min / 60 + sec / 3600;
+      }
+      return null;
+    }
+
+    function addListItem(obj) {
+      const el = document.createElement('div');
+      el.className = 'item';
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.src = obj.dataURL;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      const title = document.createElement('div');
+      title.innerHTML = `<strong>${obj.name}</strong>`;
+      const coords = document.createElement('div');
+      coords.innerText = obj.latitude != null && obj.longitude != null ? `lat: ${obj.latitude.toFixed(6)}, lon: ${obj.longitude.toFixed(6)}` : 'Pas de GPS';
+      meta.appendChild(title);
+      meta.appendChild(coords);
+
+      const actions = document.createElement('div');
+      actions.className = 'center';
+      const zoomBtn = document.createElement('button');
+      zoomBtn.innerText = 'Zoom';
+      zoomBtn.onclick = () => {
+        if (obj.latitude != null && obj.longitude != null) map.setView([obj.latitude, obj.longitude], 15);
+      };
+      const copyBtn = document.createElement('button');
+      copyBtn.innerText = 'Copier coords';
+      copyBtn.onclick = () => {
+        if (obj.latitude != null && obj.longitude != null) navigator.clipboard.writeText(`${obj.latitude},${obj.longitude}`);
+      };
+      actions.appendChild(zoomBtn);
+      actions.appendChild(copyBtn);
+
+      el.appendChild(img);
+      el.appendChild(meta);
+      el.appendChild(actions);
+      list.appendChild(el);
+    }
+
+    async function handleFiles(files) {
+      status.innerText = 'Processing...';
+      for (const file of files) {
+        try {
+          const dataURL = await new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => res(fr.result);
+            fr.onerror = rej;
+            fr.readAsDataURL(file);
+          });
+
+          const isJpeg = typeof dataURL === 'string' && dataURL.indexOf('data:image/jpeg') === 0;
+          let latitude = null;
+          let longitude = null;
+
+          if (isJpeg && window.piexif) {
+            try {
+              const exifObj = piexif.load(dataURL);
+              const gps = exifObj.GPS || {};
+              const latArr = gps[piexif.GPSIFD.GPSLatitude] || gps.GPSLatitude;
+              const lonArr = gps[piexif.GPSIFD.GPSLongitude] || gps.GPSLongitude;
+              const latRef = gps[piexif.GPSIFD.GPSLatitudeRef] || gps.GPSLatitudeRef;
+              const lonRef = gps[piexif.GPSIFD.GPSLongitudeRef] || gps.GPSLongitudeRef;
+              const lat = convertRationalArray(latArr);
+              const lon = convertRationalArray(lonArr);
+              if (lat != null && lon != null) {
+                latitude = lat;
+                longitude = lon;
+                if (latRef && String(latRef).toUpperCase() === 'S') latitude = -Math.abs(latitude);
+                if (lonRef && String(lonRef).toUpperCase() === 'W') longitude = -Math.abs(longitude);
+              }
+            } catch (e) {
+              console.log('piexif error', e);
+            }
+          }
+
+          const obj = {
+            name: file.name,
+            dataURL,
+            latitude,
+            longitude,
+          };
+
+          items.push(obj);
+          addListItem(obj);
+
+          if (latitude != null && longitude != null) {
+            L.marker([latitude, longitude]).addTo(map).bindPopup(`${file.name}`);
+            // zoom to last marker
+            map.setView([latitude, longitude], 12);
+          }
+        } catch (err) {
+          console.error('file error', err);
+        }
+      }
+      status.innerText = '';
+    }
+
+    fileInput.addEventListener('change', (e) => {
+      list.innerHTML = '';
+      items.length = 0;
+      handleFiles(e.target.files);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      list.innerHTML = '';
+      items.length = 0;
+      // reset map view
+      map.setView([48.8566, 2.3522], 3);
+      // remove all markers
+      map.eachLayer((layer) => {
+        if (layer instanceof L.Marker) map.removeLayer(layer);
+      });
+    });
+
+    exportBtn.addEventListener('click', () => {
+      const data = items.map((it) => ({ name: it.name, latitude: it.latitude, longitude: it.longitude }));
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'photo-gps.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  </script>
+</body>
+</html>
