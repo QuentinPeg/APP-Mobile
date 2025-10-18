@@ -25,6 +25,7 @@
     <input id="fileInput" type="file" accept="image/*" multiple />
     <button id="clearBtn">Clear</button>
     <button id="exportBtn">Exporter JSON</button>
+    <button id="simulateApiBtn">Simuler API (JSON)</button>
     <span id="status"></span>
   </div>
 
@@ -43,6 +44,7 @@
     const clearBtn = document.getElementById('clearBtn');
 
     const items = [];
+  console.log('EXIF GPS extractor loaded');
 
     // initialize Leaflet map
     const map = L.map('map').setView([48.8566, 2.3522], 3);
@@ -117,8 +119,10 @@
 
     async function handleFiles(files) {
       status.innerText = 'Processing...';
+      console.log('handleFiles: received', files.length, 'files');
       for (const file of files) {
         try {
+          console.log('Reading file', file.name, file);
           const dataURL = await new Promise((res, rej) => {
             const fr = new FileReader();
             fr.onload = () => res(fr.result);
@@ -126,13 +130,17 @@
             fr.readAsDataURL(file);
           });
 
+          console.log('DataURL length', typeof dataURL === 'string' ? dataURL.length : 0);
+
           const isJpeg = typeof dataURL === 'string' && dataURL.indexOf('data:image/jpeg') === 0;
           let latitude = null;
           let longitude = null;
 
           if (isJpeg && window.piexif) {
             try {
+              console.log('Attempting piexif.load for', file.name);
               const exifObj = piexif.load(dataURL);
+              console.log('piexif.load result for', file.name, exifObj);
               const gps = exifObj.GPS || {};
               const latArr = gps[piexif.GPSIFD.GPSLatitude] || gps.GPSLatitude;
               const lonArr = gps[piexif.GPSIFD.GPSLongitude] || gps.GPSLongitude;
@@ -140,6 +148,7 @@
               const lonRef = gps[piexif.GPSIFD.GPSLongitudeRef] || gps.GPSLongitudeRef;
               const lat = convertRationalArray(latArr);
               const lon = convertRationalArray(lonArr);
+              console.log('Parsed GPS arrays for', file.name, { latArr, lonArr, latRef, lonRef, lat, lon });
               if (lat != null && lon != null) {
                 latitude = lat;
                 longitude = lon;
@@ -147,7 +156,7 @@
                 if (lonRef && String(lonRef).toUpperCase() === 'W') longitude = -Math.abs(longitude);
               }
             } catch (e) {
-              console.log('piexif error', e);
+              console.log('piexif error', e, 'for', file.name);
             }
           }
 
@@ -161,6 +170,8 @@
           items.push(obj);
           addListItem(obj);
 
+          console.log('Added item', { name: obj.name, latitude: obj.latitude, longitude: obj.longitude });
+
           if (latitude != null && longitude != null) {
             L.marker([latitude, longitude]).addTo(map).bindPopup(`${file.name}`);
             // zoom to last marker
@@ -171,6 +182,7 @@
         }
       }
       status.innerText = '';
+      console.log('handleFiles: done, total items', items.length);
     }
 
     fileInput.addEventListener('change', (e) => {
@@ -192,6 +204,7 @@
 
     exportBtn.addEventListener('click', () => {
       const data = items.map((it) => ({ name: it.name, latitude: it.latitude, longitude: it.longitude }));
+      console.log('Export JSON clicked, data:', data);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -199,6 +212,21 @@
       a.download = 'photo-gps.json';
       a.click();
       URL.revokeObjectURL(url);
+    });
+
+    // Simulate API: return JSON for the first selected file (or prompt to choose)
+    const simulateApiBtn = document.getElementById('simulateApiBtn');
+    simulateApiBtn.addEventListener('click', async () => {
+      if (!items.length) {
+        alert('Aucune image chargée. Choisissez d\'abord une image.');
+        return;
+      }
+      // For demo we return array of objects { name, latitude, longitude }
+      const out = items.map((it) => ({ name: it.name, latitude: it.latitude, longitude: it.longitude }));
+      console.log('Simulate API response:', out);
+      // show result in a new window as JSON
+      const w = window.open();
+      w.document.body.innerHTML = '<pre>' + JSON.stringify(out, null, 2) + '</pre>';
     });
   </script>
 </body>
